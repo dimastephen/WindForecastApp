@@ -23,7 +23,7 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --windowed wind_forecast_app.py
+        pyinstaller --onefile --windowed main.py
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.0
