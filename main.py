@@ -14,10 +14,10 @@ class WindForecastApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Прогноз скорости ветра")
-        self.root.geometry("1200x900")
+        self.root.geometry("1200x600")
         self.root.configure(bg="#f0f0f0")
 
-        # Уменьшение шрифта на графиках в 3 раза
+        # Уменьшение шрифта на графиках
         default_font_size = matplotlib.rcParams['font.size']
         matplotlib.rcParams.update({'font.size': default_font_size / 3})
 
@@ -77,21 +77,20 @@ class WindForecastApp:
         self.log_text = scrolledtext.ScrolledText(self.right_frame, height=5, width=80, font=("Arial", 10), state='disabled')
         self.log_text.pack(pady=10)
 
-        # Область для графиков (вертикальное расположение)
-        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(10, 6))
+        # Метка для отображения достоверности прогноза
+        self.accuracy_label = tk.Label(self.right_frame, text="Достоверность прогноза: N/A", font=("Arial", 12), bg="#f0f0f0")
+        self.accuracy_label.pack(pady=10)
+
+        # Область для графика (только один график)
+        self.fig, self.ax = plt.subplots(1, 1, figsize=(10, 3))
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.right_frame)
         self.canvas.get_tk_widget().pack(pady=10)
-
-        # Метка для отображения достоверности
-        self.accuracy_label = tk.Label(self.right_frame, text="Достоверность прогноза: Ожидание прогноза...", font=("Arial", 12), bg="#f0f0f0")
-        self.accuracy_label.pack(pady=10)
 
         # Переменные
         self.df = None
         self.model = None
         self.scalers = {}
         self.history = None
-        self.test_timestamps = None
 
     def log_message(self, message):
         """Функция для вывода сообщений в текстовое поле"""
@@ -242,12 +241,12 @@ class WindForecastApp:
         self.model.compile(optimizer='adam', loss='mse', metrics=['mae'])
 
         # Обучение с выводом прогресса
-        epochs = 20
+        epochs = 10
         for epoch in range(epochs):
             history = self.model.fit(
                 [self.X_train_seq, self.X_train_cyclic], self.y_train_scaled,
                 validation_data=([self.X_val_seq, self.X_val_cyclic], self.y_val_scaled),
-                epochs=1, batch_size=32, verbose=0
+                epochs=1, batch_size=16, verbose=0
             )
             train_loss = history.history['loss'][0]
             val_loss = history.history['val_loss'][0]
@@ -272,73 +271,47 @@ class WindForecastApp:
         # Обучение модели
         self.train_model()
 
-        # Прогноз на тестовой выборке
+        # Прогноз на тестовой выборке для расчёта MAE
         y_pred_scaled = self.model.predict([self.X_test_seq, self.X_test_cyclic])
         y_pred_flat = y_pred_scaled.reshape(-1, 1)
         y_pred_unscaled = self.scalers['target'].inverse_transform(y_pred_flat).reshape(-1, 6)
         y_test_unscaled = self.scalers['target'].inverse_transform(self.y_test_scaled.reshape(-1, 1)).reshape(-1, 6)
 
-        # Создание непрерывной временной серии для тестовой выборки
-        actual_series = []
-        predicted_series = []
-        plot_timestamps = []
-        for i in range(len(y_test_unscaled)):
-            start_time = self.test_timestamps[i]
-            for j in range(6):
-                time_step = start_time + timedelta(hours=j+1)
-                actual_series.append(y_test_unscaled[i, j])
-                predicted_series.append(y_pred_unscaled[i, j])
-                plot_timestamps.append(time_step)
+        # Расчёт MAE на тестовой выборке для каждого шага (t+1, t+2, ..., t+6)
+        mae_per_step = np.mean(np.abs(y_pred_unscaled - y_test_unscaled), axis=0)
 
-        # Построение графика прогноза на тестовой выборке (сверху)
-        self.ax1.clear()
-        self.ax1.plot(plot_timestamps, actual_series, label='Актуальная', color='blue', marker='o', markersize=3)
-        self.ax1.plot(plot_timestamps, predicted_series, label='Прогнозируемая', color='orange', marker='x', markersize=3)
-        self.ax1.set_title('Прогноз на тестовой выборке (каждые 6 часов)')
-        self.ax1.set_xlabel('Время')
-        self.ax1.set_ylabel('Скорость ветра (м/с)')
-        self.ax1.legend()
-        self.ax1.grid(True)
-        self.ax1.tick_params(axis='x', rotation=45)
-
-        # Прогноз на последней последовательности (снизу)
+        # Прогноз на последней последовательности (финальный прогноз)
         X_seq = np.array([self.X_scaled[-1][0]])
         X_cyclic = np.array([self.X_scaled[-1][1]])
         y_pred_scaled = self.model.predict([X_seq, X_cyclic])
         y_pred_flat = y_pred_scaled.reshape(-1, 1)
         y_pred = self.scalers['target'].inverse_transform(y_pred_flat).reshape(-1, 6)[0]
 
-        self.ax2.clear()
-        self.ax2.plot(range(1, 7), y_pred, label='Прогноз', marker='x', color='orange')
-        self.ax2.set_title('Прогноз скорости ветра на 6 часов')
-        self.ax2.set_xlabel('Часы вперед')
-        self.ax2.set_ylabel('Скорость ветра (м/с)')
-        self.ax2.legend()
-        self.ax2.grid(True)
-
-        # Установка расстояния между графиками
-        self.fig.tight_layout(pad=3.0)
-
-        self.canvas.draw()
-
-        # Вычисление достоверности на тестовой выборке
-        # 1. Вычисляем MAE для каждого шага (t+1 до t+6)
-        mae_per_step = np.mean(np.abs(y_pred_unscaled - y_test_unscaled), axis=0)
-        # 2. Вычисляем среднюю прогнозируемую скорость для каждого шага
-        mean_pred_per_step = np.mean(y_pred_unscaled, axis=0)
-        # 3. Вычисляем относительную ошибку (MAE / средняя прогнозируемая скорость)
-        # Добавляем небольшую константу в знаменатель, чтобы избежать деления на 0
-        relative_error_per_step = mae_per_step / (mean_pred_per_step + 1e-10)
-        # 4. Вычисляем достоверность как 1 - относительная ошибка (в процентах)
+        # Расчёт достоверности для финального прогноза
+        # Используем среднюю скорость ветра из финального прогноза для нормализации
+        mean_pred_speed = np.mean(y_pred) + 1e-10  # Добавляем малую константу, чтобы избежать деления на 0
+        relative_error_per_step = mae_per_step / mean_pred_speed
         accuracy_per_step = (1 - relative_error_per_step) * 100
-        # Ограничиваем достоверность диапазоном [0, 100]
-        accuracy_per_step = np.clip(accuracy_per_step, 0, 100)
+        accuracy_per_step = np.clip(accuracy_per_step, 0, 100)  # Ограничиваем достоверность от 0 до 100
 
+        # Формируем текст достоверности
         accuracy_text = "Достоверность прогноза (%):\n" + "\n".join(
             f"t+{i+1}: {acc:.2f}%" for i, acc in enumerate(accuracy_per_step)
         )
         self.accuracy_label.config(text=accuracy_text)
-        self.log_message("Достоверность прогноза на тестовой выборке:\n" + accuracy_text)
+        self.log_message("Достоверность финального прогноза:\n" + accuracy_text)
+
+        # Построение графика прогноза на 6 часов
+        self.ax.clear()
+        self.ax.plot(range(1, 7), y_pred, label='Прогноз', marker='x', color='orange')
+        self.ax.set_title('Прогноз скорости ветра на 6 часов')
+        self.ax.set_xlabel('Часы вперед')
+        self.ax.set_ylabel('Скорость ветра (м/с)')
+        self.ax.legend()
+        self.ax.grid(True)
+
+        self.fig.tight_layout(pad=3.0)
+        self.canvas.draw()
 
         self.status_label.config(text="Прогноз завершен!")
         self.log_message("Прогноз завершен.")
