@@ -39,8 +39,11 @@ jobs:
         run: |
           python -m nuitka `
             --standalone `
-            --windows-disable-console `
+            --windows-console-mode=disable `
             --enable-plugin=tk-inter `
+            --low-memory `
+            --show-memory `
+            --show-progress `
             --output-dir=build `
             wind_forecast_app.py
 
