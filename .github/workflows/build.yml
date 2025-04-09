@@ -21,9 +21,11 @@ jobs:
           python-version: '3.10'
           architecture: 'x64'
 
+
       # Устанавливаем компилятор (MSVC)
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
+
 
       # Устанавливаем зависимости
       - name: Install dependencies
@@ -42,6 +44,7 @@ jobs:
             --output-dir=build `
             wind_forecast_app.py
 
+
       # Загружаем артефакт
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -49,3 +52,5 @@ jobs:
           name: windows-app
           path: build/wind_forecast_app.dist
           include-hidden-files: true
+
+
